@@ -1,25 +1,28 @@
 // Global variables
-let selectedFiles = [];
-let categories = [];
-let types = [];
-let brands = [];
 let currentFilter = 'all';
+let currentManagementTab = 'categories';
+let isDeveloperMode = false;
+let currentTheme = 'light';
+let selectedFiles = [];
 
 // API Base URL
-const API_BASE = '/api';
+const API_BASE = '';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
 });
 
+// Initialize application
 async function initializeApp() {
     try {
+        await loadSettings();
+        await loadStats();
+        await loadContent();
         await loadCategories();
         await loadTypes();
         await loadBrands();
-        await loadStats();
-        await loadGallery();
+        await loadSocialLinks();
         setupEventListeners();
         showNotification('تم تحميل التطبيق بنجاح', 'success');
     } catch (error) {
@@ -28,41 +31,561 @@ async function initializeApp() {
     }
 }
 
+// Setup event listeners
 function setupEventListeners() {
-    // File upload
-    const fileInput = document.getElementById('file-input');
-    const uploadArea = document.getElementById('upload-area');
-    const uploadForm = document.getElementById('upload-form');
-
     // File input change
-    fileInput.addEventListener('change', handleFileSelect);
-
-    // Drag and drop
+    document.getElementById('file-input').addEventListener('change', handleFileSelect);
+    
+    // Upload area drag and drop
+    const uploadArea = document.querySelector('.upload-area');
     uploadArea.addEventListener('dragover', handleDragOver);
     uploadArea.addEventListener('dragleave', handleDragLeave);
     uploadArea.addEventListener('drop', handleDrop);
+    
+    // Form submissions
+    document.getElementById('category-form').addEventListener('submit', handleCategorySubmit);
+    document.getElementById('type-form').addEventListener('submit', handleTypeSubmit);
+    document.getElementById('brand-form').addEventListener('submit', handleBrandSubmit);
+    
+    // Theme detection
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        setTheme('dark');
+    }
+}
 
-    // Upload form
-    uploadForm.addEventListener('submit', handleUploadSubmit);
+// Load settings from server
+async function loadSettings() {
+    try {
+        const response = await fetch(`${API_BASE}/api/settings`);
+        if (response.ok) {
+            const settings = await response.json();
+            applySettings(settings);
+        }
+    } catch (error) {
+        console.error('Error loading settings:', error);
+    }
+}
 
-    // Category change for types
-    document.getElementById('upload-category').addEventListener('change', handleCategoryChange);
+// Apply settings to the interface
+function applySettings(settings) {
+    // Apply theme
+    if (settings.theme) {
+        setTheme(settings.theme);
+    }
+    
+    // Apply colors
+    if (settings.primary_color) {
+        document.documentElement.style.setProperty('--primary-color', settings.primary_color);
+    }
+    
+    // Apply font
+    if (settings.font_family) {
+        document.body.style.fontFamily = `'${settings.font_family}', 'Cairo', 'Tajawal', sans-serif`;
+    }
+    
+    // Apply SEO settings
+    if (settings.site_title) {
+        document.title = settings.site_title;
+    }
+    
+    if (settings.site_description) {
+        const metaDesc = document.querySelector('meta[name="description"]');
+        if (metaDesc) metaDesc.content = settings.site_description;
+    }
+}
 
-    // Gallery filters
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', handleFilterChange);
+// Load statistics
+async function loadStats() {
+    try {
+        const response = await fetch(`${API_BASE}/api/content/stats`);
+        if (response.ok) {
+            const stats = await response.json();
+            updateStats(stats);
+        }
+    } catch (error) {
+        console.error('Error loading stats:', error);
+    }
+}
+
+// Update statistics display
+function updateStats(stats) {
+    document.getElementById('total-images').textContent = stats.total_images || 0;
+    document.getElementById('total-videos').textContent = stats.total_videos || 0;
+    document.getElementById('total-views').textContent = stats.total_views || 0;
+    document.getElementById('storage-used').textContent = `${stats.storage_used || 0} MB`;
+}
+
+// Load content from server
+async function loadContent() {
+    try {
+        const response = await fetch(`${API_BASE}/api/content`);
+        if (response.ok) {
+            const content = await response.json();
+            displayContent(content);
+        }
+    } catch (error) {
+        console.error('Error loading content:', error);
+        showEmptyState();
+    }
+}
+
+// Display content in gallery
+function displayContent(content) {
+    const galleryGrid = document.getElementById('gallery-grid');
+    const emptyGallery = document.getElementById('empty-gallery');
+    
+    if (!content || content.length === 0) {
+        showEmptyState();
+        return;
+    }
+    
+    galleryGrid.innerHTML = '';
+    emptyGallery.style.display = 'none';
+    
+    content.forEach(item => {
+        if (currentFilter === 'all' || currentFilter === item.content_type) {
+            const galleryItem = createGalleryItem(item);
+            galleryGrid.appendChild(galleryItem);
+        }
     });
+    
+    if (galleryGrid.children.length === 0) {
+        showEmptyState();
+    }
+}
 
-    // Management tabs
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', handleTabChange);
+// Create gallery item element
+function createGalleryItem(item) {
+    const div = document.createElement('div');
+    div.className = 'gallery-item';
+    div.onclick = () => openContentModal(item);
+    
+    const isVideo = item.content_type === 'video';
+    const mediaElement = isVideo ? 
+        `<video class="gallery-image" src="${item.file_path}" controls></video>` :
+        `<img class="gallery-image" src="${item.file_path}" alt="${item.title}" loading="lazy">`;
+    
+    div.innerHTML = `
+        ${mediaElement}
+        <div class="gallery-info">
+            <div class="gallery-title">${item.title}</div>
+            <div class="gallery-meta">
+                <span><i class="fas fa-${isVideo ? 'video' : 'image'}"></i> ${item.content_type}</span>
+                <span><i class="fas fa-eye"></i> ${item.views || 0}</span>
+            </div>
+        </div>
+    `;
+    
+    return div;
+}
+
+// Show empty state
+function showEmptyState() {
+    const galleryGrid = document.getElementById('gallery-grid');
+    const emptyGallery = document.getElementById('empty-gallery');
+    
+    galleryGrid.innerHTML = '';
+    emptyGallery.style.display = 'block';
+}
+
+// Load categories
+async function loadCategories() {
+    try {
+        const response = await fetch(`${API_BASE}/api/categories`);
+        if (response.ok) {
+            const categories = await response.json();
+            updateCategoriesDisplay(categories);
+            updateCategoriesSelects(categories);
+        }
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+// Update categories display
+function updateCategoriesDisplay(categories) {
+    const categoriesList = document.getElementById('categories-list');
+    categoriesList.innerHTML = '';
+    
+    if (categories.length === 0) {
+        categoriesList.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">لا توجد تصنيفات</p>';
+        return;
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'management-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>الاسم</th>
+                <th>الوصف</th>
+                <th>عدد العناصر</th>
+                <th>الإجراءات</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${categories.map(category => `
+                <tr>
+                    <td>${category.name}</td>
+                    <td>${category.description || '-'}</td>
+                    <td>${category.content_count || 0}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="editCategory(${category.id})">
+                            <i class="fas fa-edit"></i> تعديل
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteCategory(${category.id})">
+                            <i class="fas fa-trash"></i> حذف
+                        </button>
+                    </td>
+                </tr>
+            `).join('')}
+        </tbody>
+    `;
+    
+    categoriesList.appendChild(table);
+}
+
+// Update categories in select elements
+function updateCategoriesSelects(categories) {
+    const selects = ['upload-category', 'type-category'];
+    
+    selects.forEach(selectId => {
+        const select = document.getElementById(selectId);
+        if (select) {
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">اختر التصنيف</option>';
+            
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category.id;
+                option.textContent = category.name;
+                if (category.id == currentValue) option.selected = true;
+                select.appendChild(option);
+            });
+        }
     });
 }
 
-// File handling functions
+// Load types
+async function loadTypes() {
+    try {
+        const response = await fetch(`${API_BASE}/api/types`);
+        if (response.ok) {
+            const types = await response.json();
+            updateTypesDisplay(types);
+            updateTypesSelects(types);
+        }
+    } catch (error) {
+        console.error('Error loading types:', error);
+    }
+}
+
+// Update types display
+function updateTypesDisplay(types) {
+    const typesList = document.getElementById('types-list');
+    typesList.innerHTML = '';
+    
+    if (types.length === 0) {
+        typesList.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">لا توجد أنواع</p>';
+        return;
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'management-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>الاسم</th>
+                <th>التصنيف</th>
+                <th>الوصف</th>
+                <th>عدد العناصر</th>
+                <th>الإجراءات</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${types.map(type => `
+                <tr>
+                    <td>${type.name}</td>
+                    <td>${type.category_name || '-'}</td>
+                    <td>${type.description || '-'}</td>
+                    <td>${type.content_count || 0}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="editType(${type.id})">
+                            <i class="fas fa-edit"></i> تعديل
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteType(${type.id})">
+                            <i class="fas fa-trash"></i> حذف
+                        </button>
+                    </td>
+                </tr>
+            `).join('')}
+        </tbody>
+    `;
+    
+    typesList.appendChild(table);
+}
+
+// Update types in select elements
+function updateTypesSelects(types) {
+    const select = document.getElementById('upload-type');
+    if (select) {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">اختر النوع</option>';
+        
+        types.forEach(type => {
+            const option = document.createElement('option');
+            option.value = type.id;
+            option.textContent = type.name;
+            if (type.id == currentValue) option.selected = true;
+            select.appendChild(option);
+        });
+    }
+}
+
+// Load brands
+async function loadBrands() {
+    try {
+        const response = await fetch(`${API_BASE}/api/brands`);
+        if (response.ok) {
+            const brands = await response.json();
+            updateBrandsDisplay(brands);
+            updateBrandsSelects(brands);
+        }
+    } catch (error) {
+        console.error('Error loading brands:', error);
+    }
+}
+
+// Update brands display
+function updateBrandsDisplay(brands) {
+    const brandsList = document.getElementById('brands-list');
+    brandsList.innerHTML = '';
+    
+    if (brands.length === 0) {
+        brandsList.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">لا توجد علامات تجارية</p>';
+        return;
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'management-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>الاسم</th>
+                <th>الوصف</th>
+                <th>عدد العناصر</th>
+                <th>الإجراءات</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${brands.map(brand => `
+                <tr>
+                    <td>${brand.name}</td>
+                    <td>${brand.description || '-'}</td>
+                    <td>${brand.content_count || 0}</td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="editBrand(${brand.id})">
+                            <i class="fas fa-edit"></i> تعديل
+                        </button>
+                        <button class="btn btn-danger" onclick="deleteBrand(${brand.id})">
+                            <i class="fas fa-trash"></i> حذف
+                        </button>
+                    </td>
+                </tr>
+            `).join('')}
+        </tbody>
+    `;
+    
+    brandsList.appendChild(table);
+}
+
+// Update brands in select elements
+function updateBrandsSelects(brands) {
+    const select = document.getElementById('upload-brand');
+    if (select) {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">اختر العلامة التجارية</option>';
+        
+        brands.forEach(brand => {
+            const option = document.createElement('option');
+            option.value = brand.id;
+            option.textContent = brand.name;
+            if (brand.id == currentValue) option.selected = true;
+            select.appendChild(option);
+        });
+    }
+}
+
+// Load social media links
+async function loadSocialLinks() {
+    try {
+        const response = await fetch(`${API_BASE}/api/settings/social`);
+        if (response.ok) {
+            const socialLinks = await response.json();
+            updateSocialLinksDisplay(socialLinks);
+        }
+    } catch (error) {
+        console.error('Error loading social links:', error);
+        // Show default social links
+        updateSocialLinksDisplay({});
+    }
+}
+
+// Update social media links display
+function updateSocialLinksDisplay(socialLinks) {
+    const socialLinksContainer = document.getElementById('social-links');
+    socialLinksContainer.innerHTML = '';
+    
+    const defaultSocials = [
+        { key: 'facebook', icon: 'fab fa-facebook-f', name: 'Facebook' },
+        { key: 'twitter', icon: 'fab fa-twitter', name: 'Twitter' },
+        { key: 'instagram', icon: 'fab fa-instagram', name: 'Instagram' },
+        { key: 'linkedin', icon: 'fab fa-linkedin-in', name: 'LinkedIn' },
+        { key: 'youtube', icon: 'fab fa-youtube', name: 'YouTube' },
+        { key: 'github', icon: 'fab fa-github', name: 'GitHub' },
+        { key: 'telegram', icon: 'fab fa-telegram-plane', name: 'Telegram' },
+        { key: 'whatsapp', icon: 'fab fa-whatsapp', name: 'WhatsApp' }
+    ];
+    
+    defaultSocials.forEach(social => {
+        const link = socialLinks[social.key];
+        if (link) {
+            const a = document.createElement('a');
+            a.href = link;
+            a.className = 'social-link';
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.title = social.name;
+            a.innerHTML = `<i class="${social.icon}"></i>`;
+            socialLinksContainer.appendChild(a);
+        }
+    });
+}
+
+// Tab management
+function showTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from all nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show selected tab
+    const selectedTab = document.getElementById(`${tabName}-tab`) || document.getElementById(`${tabName}-tab-content`);
+    if (selectedTab) {
+        selectedTab.classList.add('active');
+    }
+    
+    // Add active class to clicked nav tab
+    event.target.classList.add('active');
+    
+    // Load content based on tab
+    if (tabName === 'gallery') {
+        loadContent();
+    } else if (tabName === 'management') {
+        loadCategories();
+        loadTypes();
+        loadBrands();
+    }
+}
+
+// Management tab management
+function showManagementTab(tabName) {
+    currentManagementTab = tabName;
+    
+    // Hide all management tab contents
+    document.querySelectorAll('#management-tab-content .tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from management nav tabs
+    document.querySelectorAll('#management-tab-content .nav-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show selected management tab
+    const selectedTab = document.getElementById(`${tabName}-management`);
+    if (selectedTab) {
+        selectedTab.classList.add('active');
+    }
+    
+    // Add active class to clicked nav tab
+    event.target.classList.add('active');
+}
+
+// Developer mode functions
+function toggleDeveloperMode() {
+    isDeveloperMode = !isDeveloperMode;
+    const managementTab = document.getElementById('management-tab');
+    const developerModal = document.getElementById('developer-modal');
+    
+    if (isDeveloperMode) {
+        managementTab.style.display = 'block';
+        developerModal.classList.add('active');
+        showNotification('تم تفعيل وضع المطور', 'info');
+    } else {
+        managementTab.style.display = 'none';
+        developerModal.classList.remove('active');
+        showNotification('تم إلغاء تفعيل وضع المطور', 'info');
+    }
+}
+
+function closeDeveloperModal() {
+    document.getElementById('developer-modal').classList.remove('active');
+}
+
+function showDeveloperTab(tabName) {
+    // Hide all developer tab contents
+    document.querySelectorAll('#developer-modal .tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Remove active class from developer nav tabs
+    document.querySelectorAll('#developer-modal .nav-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    
+    // Show selected developer tab
+    const selectedTab = document.getElementById(`${tabName}-settings`);
+    if (selectedTab) {
+        selectedTab.classList.add('active');
+    }
+    
+    // Add active class to clicked nav tab
+    event.target.classList.add('active');
+}
+
+// Theme management
+function toggleTheme() {
+    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+    setTheme(currentTheme);
+}
+
+function setTheme(theme) {
+    currentTheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    
+    const themeIcon = document.getElementById('theme-icon');
+    if (themeIcon) {
+        themeIcon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
+    }
+    
+    const themeSwitch = document.getElementById('theme-mode-switch');
+    if (themeSwitch) {
+        themeSwitch.checked = theme === 'dark';
+    }
+}
+
+// File handling
 function handleFileSelect(event) {
-    const files = Array.from(event.target.files);
-    processSelectedFiles(files);
+    selectedFiles = Array.from(event.target.files);
+    if (selectedFiles.length > 0) {
+        showUploadForm();
+    }
 }
 
 function handleDragOver(event) {
@@ -71,579 +594,537 @@ function handleDragOver(event) {
 }
 
 function handleDragLeave(event) {
+    event.preventDefault();
     event.currentTarget.classList.remove('dragover');
 }
 
 function handleDrop(event) {
     event.preventDefault();
     event.currentTarget.classList.remove('dragover');
-    const files = Array.from(event.dataTransfer.files);
-    processSelectedFiles(files);
-}
-
-function processSelectedFiles(files) {
-    selectedFiles = files.filter(file => {
-        const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/mov', 'video/avi', 'video/webm'];
-        return validTypes.includes(file.type) && file.size <= 100 * 1024 * 1024; // 100MB limit
-    });
-
-    if (selectedFiles.length > 0) {
-        document.getElementById('upload-form').style.display = 'block';
-        updateUploadAreaText();
-    } else {
-        showNotification('يرجى اختيار ملفات صالحة (صور أو فيديوهات أقل من 100 ميجابايت)', 'error');
-    }
-}
-
-function updateUploadAreaText() {
-    const uploadArea = document.getElementById('upload-area');
-    const icon = uploadArea.querySelector('.upload-icon i');
-    const text = uploadArea.querySelector('.upload-text');
-    const hint = uploadArea.querySelector('.upload-hint');
-
-    icon.className = 'fas fa-check-circle';
-    icon.style.color = 'var(--success-color)';
-    text.textContent = `تم اختيار ${selectedFiles.length} ملف`;
-    hint.textContent = 'انقر هنا لاختيار ملفات أخرى أو املأ النموذج أدناه';
-}
-
-async function handleUploadSubmit(event) {
-    event.preventDefault();
-
-    if (selectedFiles.length === 0) {
-        showNotification('يرجى اختيار ملفات للرفع', 'error');
-        return;
-    }
-
-    const categoryId = document.getElementById('upload-category').value;
-    if (!categoryId) {
-        showNotification('يرجى اختيار تصنيف', 'error');
-        return;
-    }
-
-    const formData = new FormData();
     
-    // Add files
-    selectedFiles.forEach(file => {
-        formData.append('files', file);
-    });
+    selectedFiles = Array.from(event.dataTransfer.files);
+    if (selectedFiles.length > 0) {
+        showUploadForm();
+    }
+}
 
-    // Add metadata
-    formData.append('title', document.getElementById('upload-title').value);
-    formData.append('description', document.getElementById('upload-description').value);
-    formData.append('category_id', categoryId);
-    formData.append('type_id', document.getElementById('upload-type').value);
-    formData.append('brand_id', document.getElementById('upload-brand').value);
-    formData.append('tags', document.getElementById('upload-tags').value);
-    formData.append('uploaded_by', 'default-user-id'); // Should come from authentication
+function showUploadForm() {
+    document.getElementById('upload-form').style.display = 'block';
+}
 
+function cancelUpload() {
+    selectedFiles = [];
+    document.getElementById('upload-form').style.display = 'none';
+    document.getElementById('file-input').value = '';
+}
+
+// Upload files
+async function uploadFiles() {
+    if (selectedFiles.length === 0) {
+        showNotification('يرجى اختيار ملفات للرفع', 'warning');
+        return;
+    }
+    
+    const title = document.getElementById('upload-title').value.trim();
+    const description = document.getElementById('upload-description').value.trim();
+    const categoryId = document.getElementById('upload-category').value;
+    const typeId = document.getElementById('upload-type').value;
+    const brandId = document.getElementById('upload-brand').value;
+    const tags = document.getElementById('upload-tags').value.trim();
+    
+    if (!title) {
+        showNotification('يرجى إدخال عنوان للملف', 'warning');
+        return;
+    }
+    
+    if (!categoryId) {
+        showNotification('يرجى اختيار تصنيف', 'warning');
+        return;
+    }
+    
+    const progressContainer = document.getElementById('upload-progress');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    
+    progressContainer.style.display = 'block';
+    
     try {
-        showUploadProgress(true);
-        
-        const response = await fetch(`${API_BASE}/content`, {
-            method: 'POST',
-            body: formData
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showNotification(result.message, 'success');
-            resetUploadForm();
-            await loadStats();
-            await loadGallery();
-        } else {
-            showNotification(result.error, 'error');
+        for (let i = 0; i < selectedFiles.length; i++) {
+            const file = selectedFiles[i];
+            const formData = new FormData();
+            
+            formData.append('file', file);
+            formData.append('title', title);
+            formData.append('description', description);
+            formData.append('category_id', categoryId);
+            if (typeId) formData.append('type_id', typeId);
+            if (brandId) formData.append('brand_id', brandId);
+            if (tags) formData.append('tags', tags);
+            
+            const response = await fetch(`${API_BASE}/api/content/upload`, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                const progress = ((i + 1) / selectedFiles.length) * 100;
+                progressFill.style.width = `${progress}%`;
+                progressText.textContent = `تم رفع ${i + 1} من ${selectedFiles.length} ملف`;
+            } else {
+                throw new Error('فشل في رفع الملف');
+            }
         }
+        
+        showNotification('تم رفع جميع الملفات بنجاح', 'success');
+        cancelUpload();
+        await loadContent();
+        await loadStats();
+        
     } catch (error) {
         console.error('Upload error:', error);
         showNotification('حدث خطأ أثناء رفع الملفات', 'error');
     } finally {
-        showUploadProgress(false);
+        progressContainer.style.display = 'none';
     }
 }
 
-function showUploadProgress(show) {
-    const progressBar = document.getElementById('upload-progress');
-    const submitBtn = document.querySelector('#upload-form button[type="submit"]');
+// Filter content
+function filterContent(type) {
+    currentFilter = type;
     
-    if (show) {
-        progressBar.style.display = 'block';
-        submitBtn.innerHTML = '<div class="loading"></div> جاري الرفع...';
-        submitBtn.disabled = true;
-        
-        // Simulate progress
-        let progress = 0;
-        const interval = setInterval(() => {
-            progress += Math.random() * 15;
-            if (progress > 90) progress = 90;
-            document.getElementById('progress-fill').style.width = progress + '%';
-        }, 200);
-        
-        submitBtn.dataset.interval = interval;
-    } else {
-        progressBar.style.display = 'none';
-        submitBtn.innerHTML = '<i class="fas fa-upload"></i> رفع الملفات';
-        submitBtn.disabled = false;
-        document.getElementById('progress-fill').style.width = '100%';
-        
-        if (submitBtn.dataset.interval) {
-            clearInterval(submitBtn.dataset.interval);
-        }
-        
-        setTimeout(() => {
-            document.getElementById('progress-fill').style.width = '0%';
-        }, 1000);
-    }
-}
-
-function resetUploadForm() {
-    selectedFiles = [];
-    document.getElementById('upload-form').style.display = 'none';
-    document.getElementById('upload-form').reset();
-    
-    // Reset upload area
-    const uploadArea = document.getElementById('upload-area');
-    const icon = uploadArea.querySelector('.upload-icon i');
-    const text = uploadArea.querySelector('.upload-text');
-    const hint = uploadArea.querySelector('.upload-hint');
-
-    icon.className = 'fas fa-cloud-upload-alt';
-    icon.style.color = '';
-    text.textContent = 'اسحب الملفات هنا أو انقر للاختيار';
-    hint.textContent = 'يدعم: JPG, PNG, GIF, MP4, MOV, AVI (حتى 100 ميجابايت)';
-}
-
-function cancelUpload() {
-    resetUploadForm();
-}
-
-// Data loading functions
-async function loadCategories() {
-    try {
-        const response = await fetch(`${API_BASE}/categories`);
-        const result = await response.json();
-        
-        if (result.success) {
-            categories = result.categories;
-            populateCategorySelect();
-            populateCategoriesList();
-        }
-    } catch (error) {
-        console.error('Error loading categories:', error);
-    }
-}
-
-async function loadTypes() {
-    try {
-        const response = await fetch(`${API_BASE}/types`);
-        const result = await response.json();
-        
-        if (result.success) {
-            types = result.types;
-            populateTypesList();
-        }
-    } catch (error) {
-        console.error('Error loading types:', error);
-    }
-}
-
-async function loadBrands() {
-    try {
-        const response = await fetch(`${API_BASE}/brands`);
-        const result = await response.json();
-        
-        if (result.success) {
-            brands = result.brands;
-            populateBrandSelect();
-            populateBrandsList();
-        }
-    } catch (error) {
-        console.error('Error loading brands:', error);
-    }
-}
-
-async function loadStats() {
-    try {
-        const response = await fetch(`${API_BASE}/content/stats`);
-        const result = await response.json();
-        
-        if (result.success) {
-            const stats = result.stats;
-            document.getElementById('total-images').textContent = stats.total_images;
-            document.getElementById('total-videos').textContent = stats.total_videos;
-            document.getElementById('total-views').textContent = stats.total_views;
-            document.getElementById('total-storage').textContent = '0 MB'; // Calculate from file sizes
-        }
-    } catch (error) {
-        console.error('Error loading stats:', error);
-    }
-}
-
-async function loadGallery() {
-    try {
-        const response = await fetch(`${API_BASE}/content?content_type=${currentFilter === 'all' ? '' : currentFilter}`);
-        const result = await response.json();
-        
-        if (result.success) {
-            populateGallery(result.content);
-        }
-    } catch (error) {
-        console.error('Error loading gallery:', error);
-    }
-}
-
-// UI population functions
-function populateCategorySelect() {
-    const select = document.getElementById('upload-category');
-    select.innerHTML = '<option value="">اختر تصنيف</option>';
-    
-    categories.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category.id;
-        option.textContent = category.name;
-        select.appendChild(option);
+    // Update active filter button
+    document.querySelectorAll('#gallery-tab .nav-tab').forEach(tab => {
+        tab.classList.remove('active');
     });
-}
-
-function populateTypeSelect(categoryId = null) {
-    const select = document.getElementById('upload-type');
-    select.innerHTML = '<option value="">اختر نوع (اختياري)</option>';
-    
-    const filteredTypes = categoryId ? 
-        types.filter(type => type.category_id === categoryId) : 
-        types;
-    
-    filteredTypes.forEach(type => {
-        const option = document.createElement('option');
-        option.value = type.id;
-        option.textContent = type.name;
-        select.appendChild(option);
-    });
-}
-
-function populateBrandSelect() {
-    const select = document.getElementById('upload-brand');
-    select.innerHTML = '<option value="">اختر علامة تجارية (اختياري)</option>';
-    
-    brands.forEach(brand => {
-        const option = document.createElement('option');
-        option.value = brand.id;
-        option.textContent = brand.name;
-        select.appendChild(option);
-    });
-}
-
-function populateGallery(content) {
-    const grid = document.getElementById('gallery-grid');
-    
-    if (content.length === 0) {
-        grid.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-images"></i>
-                <h3>لا توجد ملفات</h3>
-                <p>لا توجد ملفات تطابق المرشح المحدد</p>
-            </div>
-        `;
-        return;
-    }
-    
-    grid.innerHTML = content.map(item => `
-        <div class="gallery-item" onclick="viewContent('${item.id}')">
-            <div class="gallery-item-media">
-                ${item.content_type === 'image' ? 
-                    `<img src="${item.file_url}" alt="${item.title}" style="width: 100%; height: 100%; object-fit: cover;">` :
-                    `<i class="fas fa-play-circle" style="font-size: 3rem; color: var(--primary-color);"></i>`
-                }
-            </div>
-            <div class="gallery-item-content">
-                <div class="gallery-item-title">${item.title}</div>
-                <div class="gallery-item-meta">
-                    <span><i class="fas fa-eye"></i> ${item.views_count}</span>
-                    <span><i class="fas fa-heart"></i> ${item.likes_count}</span>
-                </div>
-            </div>
-        </div>
-    `).join('');
-}
-
-function populateCategoriesList() {
-    const list = document.getElementById('categories-list');
-    
-    if (categories.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>لا توجد تصنيفات</p></div>';
-        return;
-    }
-    
-    list.innerHTML = categories.map(category => `
-        <div class="management-item">
-            <div class="management-item-info">
-                <h4>${category.name}</h4>
-                <p>${category.description || 'لا يوجد وصف'}</p>
-            </div>
-            <div class="management-item-actions">
-                <button class="btn btn-secondary btn-small" onclick="editItem('category', '${category.id}')">
-                    <i class="fas fa-edit"></i> تعديل
-                </button>
-                <button class="btn btn-danger btn-small" onclick="deleteItem('category', '${category.id}', '${category.name}')">
-                    <i class="fas fa-trash"></i> حذف
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-function populateTypesList() {
-    const list = document.getElementById('types-list');
-    
-    if (types.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>لا توجد أنواع</p></div>';
-        return;
-    }
-    
-    list.innerHTML = types.map(type => `
-        <div class="management-item">
-            <div class="management-item-info">
-                <h4>${type.name}</h4>
-                <p>التصنيف: ${type.category_name} | ${type.description || 'لا يوجد وصف'}</p>
-            </div>
-            <div class="management-item-actions">
-                <button class="btn btn-secondary btn-small" onclick="editItem('type', '${type.id}')">
-                    <i class="fas fa-edit"></i> تعديل
-                </button>
-                <button class="btn btn-danger btn-small" onclick="deleteItem('type', '${type.id}', '${type.name}')">
-                    <i class="fas fa-trash"></i> حذف
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-function populateBrandsList() {
-    const list = document.getElementById('brands-list');
-    
-    if (brands.length === 0) {
-        list.innerHTML = '<div class="empty-state"><p>لا توجد علامات تجارية</p></div>';
-        return;
-    }
-    
-    list.innerHTML = brands.map(brand => `
-        <div class="management-item">
-            <div class="management-item-info">
-                <h4>${brand.name}</h4>
-                <p>${brand.description || 'لا يوجد وصف'}</p>
-            </div>
-            <div class="management-item-actions">
-                <button class="btn btn-secondary btn-small" onclick="editItem('brand', '${brand.id}')">
-                    <i class="fas fa-edit"></i> تعديل
-                </button>
-                <button class="btn btn-danger btn-small" onclick="deleteItem('brand', '${brand.id}', '${brand.name}')">
-                    <i class="fas fa-trash"></i> حذف
-                </button>
-            </div>
-        </div>
-    `).join('');
-}
-
-// Event handlers
-function handleCategoryChange(event) {
-    const categoryId = event.target.value;
-    populateTypeSelect(categoryId);
-}
-
-function handleFilterChange(event) {
-    // Remove active class from all buttons
-    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-    
-    // Add active class to clicked button
     event.target.classList.add('active');
     
-    // Update current filter
-    currentFilter = event.target.dataset.filter;
-    
-    // Reload gallery
-    loadGallery();
+    loadContent();
 }
 
-function handleTabChange(event) {
-    // Remove active class from all tabs
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    
-    // Add active class to clicked tab
-    event.target.classList.add('active');
-    
-    // Show corresponding content
-    const tabId = event.target.dataset.tab + '-tab';
-    document.getElementById(tabId).classList.add('active');
+// Category management
+function showAddCategoryModal() {
+    document.getElementById('category-modal-title').textContent = 'إضافة تصنيف جديد';
+    document.getElementById('category-form').reset();
+    document.getElementById('category-id').value = '';
+    document.getElementById('category-modal').classList.add('active');
 }
 
-// Management functions
-function showAddForm(type) {
-    const name = prompt(`أدخل اسم ${getTypeLabel(type)} الجديد:`);
-    if (!name) return;
+function editCategory(id) {
+    // Load category data and show edit modal
+    fetch(`${API_BASE}/api/categories/${id}`)
+        .then(response => response.json())
+        .then(category => {
+            document.getElementById('category-modal-title').textContent = 'تعديل التصنيف';
+            document.getElementById('category-id').value = category.id;
+            document.getElementById('category-name').value = category.name;
+            document.getElementById('category-description').value = category.description || '';
+            document.getElementById('category-modal').classList.add('active');
+        })
+        .catch(error => {
+            console.error('Error loading category:', error);
+            showNotification('حدث خطأ في تحميل بيانات التصنيف', 'error');
+        });
+}
+
+function closeCategoryModal() {
+    document.getElementById('category-modal').classList.remove('active');
+}
+
+async function handleCategorySubmit(event) {
+    event.preventDefault();
     
-    const description = prompt('أدخل الوصف (اختياري):') || '';
+    const id = document.getElementById('category-id').value;
+    const name = document.getElementById('category-name').value.trim();
+    const description = document.getElementById('category-description').value.trim();
     
-    let categoryId = null;
-    if (type === 'type') {
-        const categoryName = prompt('أدخل اسم التصنيف:');
-        const category = categories.find(cat => cat.name === categoryName);
-        if (!category) {
-            showNotification('التصنيف غير موجود', 'error');
-            return;
-        }
-        categoryId = category.id;
+    if (!name) {
+        showNotification('يرجى إدخال اسم التصنيف', 'warning');
+        return;
     }
     
-    addItem(type, { name, description, category_id: categoryId });
-}
-
-async function addItem(type, data) {
+    const data = { name, description };
+    const url = id ? `${API_BASE}/api/categories/${id}` : `${API_BASE}/api/categories`;
+    const method = id ? 'PUT' : 'POST';
+    
     try {
-        const response = await fetch(`${API_BASE}/${type}s`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification(result.message, 'success');
-            
-            // Reload data
-            if (type === 'category') {
-                await loadCategories();
-            } else if (type === 'type') {
-                await loadTypes();
-            } else if (type === 'brand') {
-                await loadBrands();
-            }
+        if (response.ok) {
+            showNotification(id ? 'تم تحديث التصنيف بنجاح' : 'تم إضافة التصنيف بنجاح', 'success');
+            closeCategoryModal();
+            await loadCategories();
         } else {
-            showNotification(result.error, 'error');
+            throw new Error('فشل في حفظ التصنيف');
         }
     } catch (error) {
-        console.error('Error adding item:', error);
-        showNotification('حدث خطأ أثناء الإضافة', 'error');
+        console.error('Error saving category:', error);
+        showNotification('حدث خطأ في حفظ التصنيف', 'error');
     }
 }
 
-async function deleteItem(type, id, name) {
-    if (!confirm(`هل أنت متأكد من حذف "${name}"؟`)) return;
+async function deleteCategory(id) {
+    if (!confirm('هل أنت متأكد من حذف هذا التصنيف؟')) {
+        return;
+    }
     
     try {
-        const response = await fetch(`${API_BASE}/${type}s/${id}`, {
+        const response = await fetch(`${API_BASE}/api/categories/${id}`, {
             method: 'DELETE'
         });
         
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification(result.message, 'success');
-            
-            // Reload data
-            if (type === 'category') {
-                await loadCategories();
-            } else if (type === 'type') {
-                await loadTypes();
-            } else if (type === 'brand') {
-                await loadBrands();
-            }
+        if (response.ok) {
+            showNotification('تم حذف التصنيف بنجاح', 'success');
+            await loadCategories();
         } else {
-            showNotification(result.error, 'error');
+            throw new Error('فشل في حذف التصنيف');
         }
     } catch (error) {
-        console.error('Error deleting item:', error);
-        showNotification('حدث خطأ أثناء الحذف', 'error');
+        console.error('Error deleting category:', error);
+        showNotification('حدث خطأ في حذف التصنيف', 'error');
     }
 }
 
-function editItem(type, id) {
-    // Simple edit implementation
-    const newName = prompt(`أدخل الاسم الجديد:`);
-    if (!newName) return;
-    
-    const newDescription = prompt('أدخل الوصف الجديد (اختياري):') || '';
-    
-    updateItem(type, id, { name: newName, description: newDescription });
+// Type management
+function showAddTypeModal() {
+    document.getElementById('type-modal-title').textContent = 'إضافة نوع جديد';
+    document.getElementById('type-form').reset();
+    document.getElementById('type-id').value = '';
+    document.getElementById('type-modal').classList.add('active');
 }
 
-async function updateItem(type, id, data) {
+function editType(id) {
+    fetch(`${API_BASE}/api/types/${id}`)
+        .then(response => response.json())
+        .then(type => {
+            document.getElementById('type-modal-title').textContent = 'تعديل النوع';
+            document.getElementById('type-id').value = type.id;
+            document.getElementById('type-category').value = type.category_id;
+            document.getElementById('type-name').value = type.name;
+            document.getElementById('type-description').value = type.description || '';
+            document.getElementById('type-modal').classList.add('active');
+        })
+        .catch(error => {
+            console.error('Error loading type:', error);
+            showNotification('حدث خطأ في تحميل بيانات النوع', 'error');
+        });
+}
+
+function closeTypeModal() {
+    document.getElementById('type-modal').classList.remove('active');
+}
+
+async function handleTypeSubmit(event) {
+    event.preventDefault();
+    
+    const id = document.getElementById('type-id').value;
+    const categoryId = document.getElementById('type-category').value;
+    const name = document.getElementById('type-name').value.trim();
+    const description = document.getElementById('type-description').value.trim();
+    
+    if (!name || !categoryId) {
+        showNotification('يرجى إدخال جميع البيانات المطلوبة', 'warning');
+        return;
+    }
+    
+    const data = { category_id: categoryId, name, description };
+    const url = id ? `${API_BASE}/api/types/${id}` : `${API_BASE}/api/types`;
+    const method = id ? 'PUT' : 'POST';
+    
     try {
-        const response = await fetch(`${API_BASE}/${type}s/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
         
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification(result.message, 'success');
-            
-            // Reload data
-            if (type === 'category') {
-                await loadCategories();
-            } else if (type === 'type') {
-                await loadTypes();
-            } else if (type === 'brand') {
-                await loadBrands();
-            }
+        if (response.ok) {
+            showNotification(id ? 'تم تحديث النوع بنجاح' : 'تم إضافة النوع بنجاح', 'success');
+            closeTypeModal();
+            await loadTypes();
         } else {
-            showNotification(result.error, 'error');
+            throw new Error('فشل في حفظ النوع');
         }
     } catch (error) {
-        console.error('Error updating item:', error);
-        showNotification('حدث خطأ أثناء التحديث', 'error');
+        console.error('Error saving type:', error);
+        showNotification('حدث خطأ في حفظ النوع', 'error');
     }
 }
 
-// Utility functions
-function getTypeLabel(type) {
-    const labels = {
-        'category': 'التصنيف',
-        'type': 'النوع',
-        'brand': 'العلامة التجارية'
-    };
-    return labels[type] || type;
-}
-
-function viewContent(contentId) {
-    // Simple content viewer - could be enhanced with a modal
-    window.open(`${API_BASE}/content/${contentId}`, '_blank');
-}
-
-function scrollToSection(sectionId) {
-    const section = document.getElementById(sectionId);
-    if (section) {
-        section.scrollIntoView({ behavior: 'smooth' });
+async function deleteType(id) {
+    if (!confirm('هل أنت متأكد من حذف هذا النوع؟')) {
+        return;
     }
-}
-
-function showNotification(message, type = 'success') {
-    // Remove existing notifications
-    const existingNotifications = document.querySelectorAll('.notification');
-    existingNotifications.forEach(notification => notification.remove());
     
-    // Create new notification
+    try {
+        const response = await fetch(`${API_BASE}/api/types/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showNotification('تم حذف النوع بنجاح', 'success');
+            await loadTypes();
+        } else {
+            throw new Error('فشل في حذف النوع');
+        }
+    } catch (error) {
+        console.error('Error deleting type:', error);
+        showNotification('حدث خطأ في حذف النوع', 'error');
+    }
+}
+
+// Brand management
+function showAddBrandModal() {
+    document.getElementById('brand-modal-title').textContent = 'إضافة علامة تجارية جديدة';
+    document.getElementById('brand-form').reset();
+    document.getElementById('brand-id').value = '';
+    document.getElementById('brand-modal').classList.add('active');
+}
+
+function editBrand(id) {
+    fetch(`${API_BASE}/api/brands/${id}`)
+        .then(response => response.json())
+        .then(brand => {
+            document.getElementById('brand-modal-title').textContent = 'تعديل العلامة التجارية';
+            document.getElementById('brand-id').value = brand.id;
+            document.getElementById('brand-name').value = brand.name;
+            document.getElementById('brand-description').value = brand.description || '';
+            document.getElementById('brand-modal').classList.add('active');
+        })
+        .catch(error => {
+            console.error('Error loading brand:', error);
+            showNotification('حدث خطأ في تحميل بيانات العلامة التجارية', 'error');
+        });
+}
+
+function closeBrandModal() {
+    document.getElementById('brand-modal').classList.remove('active');
+}
+
+async function handleBrandSubmit(event) {
+    event.preventDefault();
+    
+    const id = document.getElementById('brand-id').value;
+    const name = document.getElementById('brand-name').value.trim();
+    const description = document.getElementById('brand-description').value.trim();
+    
+    if (!name) {
+        showNotification('يرجى إدخال اسم العلامة التجارية', 'warning');
+        return;
+    }
+    
+    const data = { name, description };
+    const url = id ? `${API_BASE}/api/brands/${id}` : `${API_BASE}/api/brands`;
+    const method = id ? 'PUT' : 'POST';
+    
+    try {
+        const response = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+            showNotification(id ? 'تم تحديث العلامة التجارية بنجاح' : 'تم إضافة العلامة التجارية بنجاح', 'success');
+            closeBrandModal();
+            await loadBrands();
+        } else {
+            throw new Error('فشل في حفظ العلامة التجارية');
+        }
+    } catch (error) {
+        console.error('Error saving brand:', error);
+        showNotification('حدث خطأ في حفظ العلامة التجارية', 'error');
+    }
+}
+
+async function deleteBrand(id) {
+    if (!confirm('هل أنت متأكد من حذف هذه العلامة التجارية؟')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/brands/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            showNotification('تم حذف العلامة التجارية بنجاح', 'success');
+            await loadBrands();
+        } else {
+            throw new Error('فشل في حذف العلامة التجارية');
+        }
+    } catch (error) {
+        console.error('Error deleting brand:', error);
+        showNotification('حدث خطأ في حذف العلامة التجارية', 'error');
+    }
+}
+
+// Settings management
+async function saveThemeSettings() {
+    const theme = document.getElementById('theme-mode-switch').checked ? 'dark' : 'light';
+    const primaryColor = document.getElementById('primary-color-picker').value;
+    const fontFamily = document.getElementById('font-family-select').value;
+    
+    const settings = {
+        theme,
+        primary_color: primaryColor,
+        font_family: fontFamily
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/settings/theme`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        
+        if (response.ok) {
+            showNotification('تم حفظ إعدادات السمة بنجاح', 'success');
+            applySettings(settings);
+        } else {
+            throw new Error('فشل في حفظ الإعدادات');
+        }
+    } catch (error) {
+        console.error('Error saving theme settings:', error);
+        showNotification('حدث خطأ في حفظ إعدادات السمة', 'error');
+    }
+}
+
+async function saveSocialSettings() {
+    const socialSettings = {
+        facebook: document.getElementById('social-facebook').value,
+        twitter: document.getElementById('social-twitter').value,
+        instagram: document.getElementById('social-instagram').value,
+        linkedin: document.getElementById('social-linkedin').value,
+        youtube: document.getElementById('social-youtube').value,
+        github: document.getElementById('social-github').value,
+        telegram: document.getElementById('social-telegram').value,
+        whatsapp: document.getElementById('social-whatsapp').value
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/settings/social`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(socialSettings)
+        });
+        
+        if (response.ok) {
+            showNotification('تم حفظ روابط التواصل الاجتماعي بنجاح', 'success');
+            await loadSocialLinks();
+        } else {
+            throw new Error('فشل في حفظ الروابط');
+        }
+    } catch (error) {
+        console.error('Error saving social settings:', error);
+        showNotification('حدث خطأ في حفظ روابط التواصل', 'error');
+    }
+}
+
+async function saveSeoSettings() {
+    const seoSettings = {
+        site_title: document.getElementById('seo-title').value,
+        site_description: document.getElementById('seo-description').value,
+        site_keywords: document.getElementById('seo-keywords').value,
+        site_author: document.getElementById('seo-author').value,
+        site_url: document.getElementById('seo-url').value
+    };
+    
+    try {
+        const response = await fetch(`${API_BASE}/api/settings/seo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(seoSettings)
+        });
+        
+        if (response.ok) {
+            showNotification('تم حفظ إعدادات SEO بنجاح', 'success');
+            applySettings(seoSettings);
+        } else {
+            throw new Error('فشل في حفظ الإعدادات');
+        }
+    } catch (error) {
+        console.error('Error saving SEO settings:', error);
+        showNotification('حدث خطأ في حفظ إعدادات SEO', 'error');
+    }
+}
+
+// Notification system
+function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
-    notification.textContent = message;
+    notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <i class="fas fa-${getNotificationIcon(type)}"></i>
+            <span>${message}</span>
+        </div>
+    `;
     
     document.body.appendChild(notification);
     
     // Show notification
-    setTimeout(() => notification.classList.add('show'), 100);
+    setTimeout(() => {
+        notification.classList.add('show');
+    }, 100);
     
-    // Hide notification after 3 seconds
+    // Hide notification after 5 seconds
     setTimeout(() => {
         notification.classList.remove('show');
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 300);
+    }, 5000);
+}
+
+function getNotificationIcon(type) {
+    switch (type) {
+        case 'success': return 'check-circle';
+        case 'error': return 'exclamation-circle';
+        case 'warning': return 'exclamation-triangle';
+        case 'info': return 'info-circle';
+        default: return 'info-circle';
+    }
+}
+
+// Content modal (for viewing full content)
+function openContentModal(item) {
+    // Increment view count
+    fetch(`${API_BASE}/api/content/${item.id}/view`, { method: 'POST' })
+        .catch(error => console.error('Error updating view count:', error));
+    
+    // Create and show modal
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header">
+                <h3 class="modal-title">${item.title}</h3>
+                <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+            </div>
+            <div style="text-align: center; margin-bottom: 20px;">
+                ${item.content_type === 'video' ? 
+                    `<video src="${item.file_path}" controls style="max-width: 100%; max-height: 400px;"></video>` :
+                    `<img src="${item.file_path}" alt="${item.title}" style="max-width: 100%; max-height: 400px; object-fit: contain;">`
+                }
+            </div>
+            ${item.description ? `<p style="margin-bottom: 15px;">${item.description}</p>` : ''}
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--text-secondary);">
+                <span><i class="fas fa-eye"></i> ${(item.views || 0) + 1} مشاهدة</span>
+                <span><i class="fas fa-calendar"></i> ${new Date(item.created_at).toLocaleDateString('ar-SA')}</span>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Close modal when clicking outside
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            modal.remove();
+        }
+    });
 }
 

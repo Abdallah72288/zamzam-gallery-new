@@ -1,0 +1,45 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://p9hwiqclzlpy.manus.space/sitemap.xml
+
+# Disallow admin and private areas
+Disallow: /admin/
+Disallow: /api/
+Disallow: /uploads/temp/
+Disallow: /private/
+
+# Allow important directories
+Allow: /uploads/
+Allow: /static/
+Allow: /css/
+Allow: /js/
+Allow: /images/
+
+# Crawl delay (optional)
+Crawl-delay: 1
+
+# Specific rules for different bots
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
+
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+User-agent: Slurp
+Allow: /
+Crawl-delay: 2
+
+# Block bad bots
+User-agent: BadBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: AhrefsBot
+Disallow: /
+
